@@ -21,3 +21,10 @@ dev/
 
 # Results file
 results.tsv
+
+# Agentic research platform state and per-trial artifacts
+*.db
+*.db-wal
+*.db-shm
+.arp_train_*.py
+run.log

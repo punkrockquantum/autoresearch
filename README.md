@@ -56,6 +56,60 @@ prepare.py      — constants, data prep + runtime utilities (do not modify)
 train.py        — model, optimizer, training loop (agent modifies this)
 program.md      — agent instructions
 pyproject.toml  — dependencies
+arp/            — the agentic research platform (see below)
+docs/PLATFORM.md— how the platform works
+tests/          — test suite for the platform (stdlib only, no GPU)
+```
+
+## The agentic research platform (`arp`)
+
+`program.md` gives you one agent, one metric, one loop, and a TSV to read in the
+morning. `arp/` is the same idea built out: **any subject, many hypotheses at
+once, a decision procedure instead of a judgement call, a memory that carries
+across subjects, and a human who can interrupt with a prompt at any point.**
+
+It is standard library only — no GPU, no network, no new dependencies — so you
+can try the whole thing on a laptop:
+
+```bash
+python3 -m arp demo --steps 150      # offline, against a known response surface
+```
+
+Against this repo's real training loop:
+
+```bash
+python3 -m arp subject add --preset autoresearch
+python3 -m arp run nanochat-pretrain --steps 200      # patches train.py's constants per trial
+python3 -m arp status nanochat-pretrain
+python3 -m arp report nanochat-pretrain --html report.html
+```
+
+What it adds over the bare loop:
+
+- **Probabilistic search, deterministic results.** Thompson sampling decides
+  where to spend the next 5 minutes; anytime-valid confidence sequences and a
+  fixed arithmetic rule decide what it means. Runs replay exactly from their salt.
+- **"Proven" has a definition.** Clearing the screening stage only earns a
+  hypothesis a re-run across an exhaustive grid of stress cells (smaller model,
+  larger model, …) with a fresh baseline in each. All cells must hold.
+- **It learns which knobs pay.** Per-subject Beta posteriors over operator
+  families steer proposals, and a new subject warm-starts from subjects it
+  resembles.
+- **You can second-guess it.** `arp challenge` drops a result back to CONTESTED,
+  tightens the statistical bar, rolls the change back out of the baseline, and
+  re-runs the whole grid until the thesis is proven or refuted.
+- **It looks for the business case.** Proven findings trigger web search, and
+  leads feed an explicit impact score (confidence × magnitude × durability ×
+  demand × effort), optionally converted to money.
+- **It suggests what to research next**, mined from your own prompts, near-miss
+  findings, unexplored operators and market signal.
+
+`train.py` is never modified by the platform: each trial writes, runs and deletes
+its own patched copy. Full details, including the decision rules and their costs,
+are in [`docs/PLATFORM.md`](docs/PLATFORM.md).
+
+```bash
+python3 -m unittest discover -s tests -t .    # 123 tests, ~10s, no GPU required
 ```
 
 ## Design choices
