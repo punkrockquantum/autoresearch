@@ -30,6 +30,14 @@ STOPWORDS = {
     "the", "a", "an", "of", "for", "to", "and", "or", "on", "in", "with", "by",
     "is", "are", "be", "we", "our", "how", "what", "this", "that", "it", "its",
     "can", "do", "does", "using", "use", "when", "at", "as", "from", "into",
+    # Filler that would otherwise read as a research theme in its own right:
+    # "you have mentioned 'should' in 12 prompts" is not a suggestion.
+    "should", "would", "could", "will", "shall", "must", "need", "want", "let",
+    "also", "make", "get", "got", "try", "look", "see", "think", "maybe", "about",
+    "more", "less", "some", "any", "all", "very", "just", "like", "one", "two",
+    "new", "now", "then", "than", "them", "they", "there", "here", "have", "has",
+    "had", "been", "being", "per", "out", "up", "down", "off", "over", "but",
+    "not", "you", "your", "was", "were", "why", "who", "each", "may", "might",
 }
 
 # Operators that exist for every subject, whatever its parameter space.
@@ -188,13 +196,23 @@ def subject_tokens(subject: Subject) -> set:
 
 
 def similarity(a: Subject, b: Subject) -> float:
-    """Jaccard overlap of subject vocabulary. Cheap, explainable, good enough."""
+    """Vocabulary overlap between two subjects. Cheap, explainable, good enough.
+
+    Half Jaccard, half overlap coefficient. Jaccard alone punishes a subject for
+    having a long description — a one-line question about serving cost would
+    score as unrelated to a well-documented subject on exactly that, purely
+    because the documented one has more words. The overlap coefficient asks the
+    question that actually matters ("is this about that?"); Jaccard keeps it from
+    calling every short subject a match for everything.
+    """
     ta, tb = subject_tokens(a), subject_tokens(b)
     if not ta or not tb:
         return 0.0
     inter = len(ta & tb)
     union = len(ta | tb)
-    base = inter / union if union else 0.0
+    jaccard = inter / union if union else 0.0
+    containment = inter / min(len(ta), len(tb))
+    base = 0.5 * jaccard + 0.5 * containment
     # Same metric and direction means the transfer is much more likely to hold.
     if a.metric == b.metric and a.direction == b.direction:
         base = 0.5 * base + 0.5

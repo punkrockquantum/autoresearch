@@ -18,6 +18,7 @@ import sys
 from typing import Any, Dict, List, Optional
 
 from arp import __version__
+from arp.authoring import create_subject, draft_subject, starter_config
 from arp.config import PlatformConfig, default_config
 from arp.evolution import CapabilityMemory
 from arp.impact import rank_opportunities
@@ -95,6 +96,10 @@ def _config(args: argparse.Namespace) -> PlatformConfig:
     cfg = default_config()
     if getattr(args, "db", None):
         cfg.db_path = args.db
+        # Keep working files next to the database the user chose. A project-local
+        # database should stay self-contained instead of scattering starter
+        # configs and trial logs through the global cache directory.
+        cfg.work_dir = os.path.join(os.path.dirname(os.path.abspath(args.db)) or ".", "arp-work")
         cfg.ensure_dirs()
     return cfg
 
@@ -154,6 +159,66 @@ def cmd_subject_add(args: argparse.Namespace) -> int:
     print(f"  metric: {subject.metric} ({subject.direction}), runner: {subject.runner}")
     if seeded:
         print(f"  warm-started {seeded} operator prior(s) from similar subjects")
+    return 0
+
+
+def cmd_subject_new(args: argparse.Namespace) -> int:
+    """Create a subject from a sentence, using prior chats and similar subjects."""
+    store = _store(args)
+    text = " ".join(args.text)
+    try:
+        draft = draft_subject(
+            store, text, slug=args.slug, metric=args.metric, direction=args.direction,
+            runner=args.runner, template_slug=args.from_subject,
+        )
+    except KeyError as exc:
+        raise SystemExit(str(exc))
+    if store.get_subject(draft.subject.slug):
+        raise SystemExit(f"subject {draft.subject.slug!r} already exists")
+    if args.config:
+        with open(args.config) as f:
+            draft.subject.config.update(json.load(f))
+    create_subject(store, draft)
+
+    print(f"created subject {draft.subject.slug} ({draft.subject.id})")
+    print(f"  title:  {draft.subject.title}")
+    print(f"  metric: {draft.subject.metric} ({draft.subject.direction}), runner: {draft.subject.runner}")
+    print(f"  parameter space: {len(draft.subject.param_space)} knob(s), source: {draft.source}")
+    if draft.context_prompts:
+        print(f"  carried over {draft.context_prompts} earlier prompt(s) about this")
+    for note in draft.notes:
+        print(f"  note: {note}")
+
+    if draft.ready:
+        print(f"\nready to run:  arp run {draft.subject.slug} --steps 50")
+    else:
+        path = os.path.join(_config(args).work_dir, f"{draft.subject.slug}.config.json")
+        with open(path, "w") as f:
+            json.dump(starter_config(draft.subject), f, indent=2)
+        print(f"\nnot runnable yet. A starter config was written to:\n  {path}")
+        print(f"edit it, then:  arp subject update {draft.subject.slug} --config {path}")
+    return 0
+
+
+def cmd_subject_update(args: argparse.Namespace) -> int:
+    store = _store(args)
+    subject = _subject(store, args.slug)
+    with open(args.config) as f:
+        patch = json.load(f)
+    if not isinstance(patch, dict):
+        raise SystemExit("config file must contain a JSON object")
+    subject.config.update(patch)
+    if args.metric:
+        subject.metric = args.metric
+    if args.direction:
+        subject.direction = args.direction
+    if args.runner:
+        subject.runner = args.runner
+    store.save_subject(subject)
+    print(f"updated {subject.slug}: {len(subject.param_space)} knob(s), "
+          f"{len(subject.stress_axes)} stress axis/axes, runner {subject.runner}")
+    if not subject.param_space:
+        print("  warning: still no parameter space, so there is nothing to vary")
     return 0
 
 
@@ -222,6 +287,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         f"\n{summary.trials} trials in {summary.elapsed_s:.1f}s — "
         f"{len(summary.proven)} proven, {len(summary.refuted)} refuted"
     )
+    if summary.aborted:
+        print(f"\nrun aborted: {summary.aborted}", file=sys.stderr)
+        print("check the subject's runner_config, then run again", file=sys.stderr)
+        _print_json(orch.state())
+        return 1
     _print_json(orch.state())
     return 0
 
@@ -337,8 +407,14 @@ def cmd_suggest(args: argparse.Namespace) -> int:
         return 0
     for idea in ideas:
         print(idea.line())
-        if idea.seed_prompt and idea.subject_slug:
+        if not idea.seed_prompt:
+            continue
+        if idea.subject_slug:
             print(f'         arp prompt {idea.subject_slug} "{idea.seed_prompt}"')
+        else:
+            # Theme ideas have no subject yet; their seed prompt is the command
+            # that creates one.
+            print(f"         {idea.seed_prompt}")
     return 0
 
 
@@ -412,6 +488,27 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--preset", help="autoresearch | demo")
     p.add_argument("--config", help="JSON file merged into the subject config")
     p.set_defaults(func=cmd_subject_add)
+
+    p = subject_sub.add_parser(
+        "new", help="create a subject from a sentence, using prior chats and similar subjects"
+    )
+    p.add_argument("text", nargs="+", help="what you want researched, in your own words")
+    p.add_argument("--slug", help="override the generated slug")
+    p.add_argument("--metric", help="override the inferred metric name")
+    p.add_argument("--direction", choices=["minimize", "maximize"])
+    p.add_argument("--runner", help="simulated | command | train")
+    p.add_argument("--from", dest="from_subject", metavar="SLUG",
+                   help="copy the parameter space and stress axes from this subject")
+    p.add_argument("--config", help="JSON file merged into the drafted config")
+    p.set_defaults(func=cmd_subject_new)
+
+    p = subject_sub.add_parser("update", help="merge a JSON config into an existing subject")
+    p.add_argument("slug")
+    p.add_argument("--config", required=True)
+    p.add_argument("--metric")
+    p.add_argument("--direction", choices=["minimize", "maximize"])
+    p.add_argument("--runner")
+    p.set_defaults(func=cmd_subject_update)
 
     p = subject_sub.add_parser("list", help="list subjects")
     p.set_defaults(func=cmd_subject_list)

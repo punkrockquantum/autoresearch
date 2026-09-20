@@ -102,14 +102,17 @@ What it adds over the bare loop:
   leads feed an explicit impact score (confidence × magnitude × durability ×
   demand × effort), optionally converted to money.
 - **It suggests what to research next**, mined from your own prompts, near-miss
-  findings, unexplored operators and market signal.
+  findings, unexplored operators and market signal — and `arp subject new "…"`
+  turns any of those suggestions into a real subject, drafting the parameter
+  space from a similar subject you already have (or from an LLM, if configured)
+  and carrying your earlier prompts about it across.
 
 `train.py` is never modified by the platform: each trial writes, runs and deletes
 its own patched copy. Full details, including the decision rules and their costs,
 are in [`docs/PLATFORM.md`](docs/PLATFORM.md).
 
 ```bash
-python3 -m unittest discover -s tests -t .    # 123 tests, ~10s, no GPU required
+python3 -m unittest discover -s tests -t .    # 149 tests, ~15s, no GPU required
 ```
 
 ## Design choices

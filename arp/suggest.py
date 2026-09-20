@@ -161,6 +161,16 @@ def _market(store: Store, subject: Subject) -> List[Suggestion]:
     return out[:3]
 
 
+def _theme_sentence(token: str, example: str) -> str:
+    """A description the subject drafter can actually work with.
+
+    Reuses the human's own sentence where there is one, because their phrasing
+    carries the metric and the direction far more often than a bare noun does.
+    """
+    cleaned = " ".join((example or "").split())[:120].replace('"', "'")
+    return cleaned or f"research {token}"
+
+
 def _themes(store: Store, subjects: Sequence[Subject]) -> List[Suggestion]:
     """Words the human keeps using that no subject is actually about."""
     covered: set = set()
@@ -187,7 +197,9 @@ def _themes(store: Store, subjects: Sequence[Subject]) -> List[Suggestion]:
                 f"Most recent mention: \"{examples.get(token, '')[:140]}\""
             ),
             score=20.0 * math.log1p(count), kind="theme",
-            seed_prompt=f"Create a subject about {token} and propose how to measure it.",
+            # A theme has no subject to prompt yet, so the command that acts on
+            # it is the one that creates one.
+            seed_prompt=f'arp subject new "{_theme_sentence(token, examples.get(token, ""))}"',
             evidence={"token": token, "mentions": count},
         ))
     return out[:4]

@@ -46,6 +46,7 @@ from arp.store import Store
 from arp.websearch import gather_leads, get_provider
 
 MAX_CRASHES_PER_HYPOTHESIS = 3
+MAX_CONSECUTIVE_FAILURES = 5
 
 
 @dataclass
@@ -82,6 +83,7 @@ class RunSummary:
     proven: List[str] = field(default_factory=list)
     refuted: List[str] = field(default_factory=list)
     elapsed_s: float = 0.0
+    aborted: str = ""      # set when the run stopped because the setup is broken
 
     @property
     def trials(self) -> int:
@@ -441,8 +443,9 @@ class Orchestrator:
             # A new baseline changes every open comparison, so re-decide them all.
             for hyp in hypotheses:
                 self._update_screening(hyp)
+            note = allocation.reason if trial.ok else f"{allocation.reason} | error: {trial.error[:200]}"
             return StepResult(index, "baseline", ok=trial.ok, arm="baseline",
-                              metric=trial.metric_value, note=allocation.reason)
+                              metric=trial.metric_value, note=note)
 
         hyp = allocation.hypothesis
         trial = self._execute(hyp, "treatment", allocation.seed, "screen")
@@ -516,6 +519,7 @@ class Orchestrator:
         summary = RunSummary(run_id=run.id)
         t0 = time.time()
         idle_streak = 0
+        failure_streak = 0
         try:
             for _ in range(steps):
                 if budget_seconds is not None and time.time() - t0 >= budget_seconds:
@@ -529,11 +533,26 @@ class Orchestrator:
                 if idle_streak >= 3:
                     run.notes = "frontier exhausted: no hypotheses left to test"
                     break
+
+                # A setup that cannot run is not a research result. Five failures
+                # in a row means the command, the environment or the parameter
+                # space is wrong, and grinding through the budget would just bury
+                # the error under a hundred identical ones.
+                failure_streak = failure_streak + 1 if not result.ok else 0
+                if failure_streak >= MAX_CONSECUTIVE_FAILURES:
+                    run.status = "failed"
+                    run.notes = (
+                        f"aborted after {failure_streak} consecutive failed trials — "
+                        f"last error: {result.note[:300]}"
+                    )
+                    summary.aborted = run.notes
+                    break
                 if result.verdict == Verdict.PROVEN and result.hypothesis_id:
                     summary.proven.append(result.hypothesis_id)
                 elif result.verdict == Verdict.REFUTED and result.hypothesis_id:
                     summary.refuted.append(result.hypothesis_id)
-            run.status = "finished"
+            if run.status == "running":
+                run.status = "finished"
         except KeyboardInterrupt:
             run.status = "interrupted"
             run.notes = "interrupted by user"

@@ -188,6 +188,42 @@ opinion.
 
 ## Subjects
 
+### Starting one from a sentence
+
+`arp suggest` will tell you "you keep mentioning quantisation and nothing is
+researching it". `arp subject new` is how that becomes a subject:
+
+```bash
+arp subject new "reduce serving cost per token with quantisation"
+arp subject new "a second optimiser subject" --from nanochat-pretrain
+```
+
+The drafter infers the metric and direction from your phrasing, then finds a
+parameter space in one of three ways, and always says which it used:
+
+1. **a template you named** (`--from <slug>`) — copied whole, including the
+   runner and everything that runner needs. A parameter space without its runner
+   is a subject that fails every trial.
+2. **the most similar existing subject**, matched on vocabulary overlap with the
+   description *and* with your earlier prompts about it. Research questions come
+   in families.
+3. **an LLM draft**, when a key is configured, validated field by field — a spec
+   that does not typecheck is dropped rather than repaired, because a
+   plausible-looking broken spec produces trials that measure nothing.
+
+If none of those fit, the subject is still created with an empty space and a
+starter config is written next to your database for you to fill in:
+
+```bash
+arp subject update <slug> --config <path>
+```
+
+Prior prompts that mention the same things are copied into the new subject's log
+as context, so the proposer starts from what you have already said rather than a
+blank page. Similar subjects also warm-start its capability memory.
+
+### The config itself
+
 A subject is a JSON-ish config:
 
 ```json
@@ -229,6 +265,8 @@ Three runners ship:
 python3 -m arp init
 python3 -m arp subject add --preset autoresearch     # the nanochat val_bpb subject
 python3 -m arp subject add --preset demo             # offline synthetic subject
+python3 -m arp subject new "<what you want researched>" [--from <slug>] [--config f.json]
+python3 -m arp subject update <subject> --config f.json
 python3 -m arp run <subject> --steps 100 [--minutes 60] [--salt s] [--no-web]
 python3 -m arp status <subject>
 python3 -m arp findings <subject> [--verdict proven] [--verbose]
@@ -242,8 +280,13 @@ python3 -m arp demo --steps 150
 ```
 
 State lives in one SQLite file (`--db`, or `$ARP_DB`, default
-`~/.cache/autoresearch/arp/platform.db`). Runs are resumable: stop the loop
-whenever, start it again, it picks up the pending confirmation trials.
+`~/.cache/autoresearch/arp/platform.db`); working files land beside it. Runs are
+resumable: stop the loop whenever, start it again, it picks up the pending
+confirmation trials.
+
+A run that hits five failed trials in a row aborts and exits non-zero with the
+underlying error. A setup that cannot run is not a research result, and grinding
+through the budget would only bury the message under a hundred copies of itself.
 
 ---
 
