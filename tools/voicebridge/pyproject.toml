@@ -1,0 +1,40 @@
+[project]
+name = "voicebridge"
+version = "0.1.0"
+description = "Voice prompts from Meta smart glasses into Claude, ChatGPT, Perplexity or Cursor"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    # FastAPI needs this for the multipart audio upload endpoint.
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+# Local Bluetooth-mic capture (glasses paired to the machine as a headset).
+mic = [
+    "sounddevice>=0.4.6",
+    "numpy>=1.24",
+]
+# Local speech-to-text, no cloud round trip.
+local-stt = [
+    "faster-whisper>=1.0.3",
+]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+voicebridge = "voicebridge.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["voicebridge"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
